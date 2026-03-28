@@ -1,0 +1,16 @@
+{
+  "spreadsheet_id": "YOUR_SPREADSHEET_ID",
+  "weekly_sheet_name_pattern": "주간보고_{year}-W{week:02d}",
+  "monthly_sheet_name_pattern": "월간보고_{year}-{month:02d}",
+  "columns": {
+    "date": "날짜",
+    "channel": "채널",
+    "impressions": "노출수",
+    "clicks": "클릭수",
+    "conversions": "전환수",
+    "revenue": "매출(원)",
+    "cost": "광고비(원)",
+    "notes": "메모"
+  },
+  "channels": ["SNS", "검색광고", "이메일", "디스플레이", "기타"]
+}

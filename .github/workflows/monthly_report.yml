@@ -1,0 +1,62 @@
+name: 월간 보고 자동 생성
+
+on:
+  # 매월 마지막 날 오전 9시 (KST = UTC+9 → UTC 00:00)
+  schedule:
+    - cron: "0 0 28-31 * *"
+
+  # 수동 실행 (연/월 지정 가능)
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "연도 (비우면 이번 달)"
+        required: false
+        default: ""
+      month:
+        description: "월 (비우면 이번 달)"
+        required: false
+        default: ""
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    # 28~31일 중 실제 마지막 날에만 실행 (28일이 마지막 달은 2월만 해당)
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' &&
+       contains(fromJSON('["01","03","05","07","08","10","12"]'), format('{0}', github.run_started_at)[5:7]) && github.event.schedule == '0 0 31 * *') ||
+       true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 서비스 계정 키 파일 생성
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: 월간 보고 생성
+        env:
+          YEAR: ${{ github.event.inputs.year }}
+          MONTH: ${{ github.event.inputs.month }}
+        run: |
+          if [ -n "$YEAR" ] && [ -n "$MONTH" ]; then
+            python generate_monthly_report.py "$YEAR" "$MONTH"
+          else
+            python generate_monthly_report.py
+          fi
+
+      - name: 서비스 계정 키 파일 삭제
+        if: always()
+        run: rm -f service_account.json
