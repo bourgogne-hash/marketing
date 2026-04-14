@@ -7,12 +7,15 @@ Google Sheets에 작성된 주간 보고(3~5개)를 읽어
 사용법:
   python generate_monthly_report.py              # 이번 달 월간 보고 생성
   python generate_monthly_report.py 2026 3       # 특정 연/월 지정
+  python generate_monthly_report.py --export-json           # JSON으로 내보내기 (Hermes 연동)
+  python generate_monthly_report.py --export-json 2026 3   # 특정 연/월 JSON 내보내기
 """
 
 import json
 import sys
 from calendar import monthrange
 from datetime import date, timedelta
+from typing import Optional
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -272,20 +275,117 @@ def write_monthly_sheet(service, spreadsheet_id: str, sheet_name: str, rows: lis
 
 
 # ---------------------------------------------------------------------------
+# Hermes Agent 연동 - JSON 내보내기
+# ---------------------------------------------------------------------------
+
+def build_hermes_json(
+    year: int,
+    month: int,
+    agg: dict,
+    totals: dict,
+    prev_agg: Optional[dict] = None,
+) -> dict:
+    """Hermes performance_review 스킬에 전달할 JSON 구조 생성."""
+
+    def channel_stats(data: dict) -> dict:
+        imp, clk, conv, rev, cost = (
+            data["impressions"], data["clicks"], data["conversions"],
+            data["revenue"], data["cost"],
+        )
+        return {
+            "impressions": int(imp),
+            "clicks": int(clk),
+            "conversions": int(conv),
+            "revenue": int(rev),
+            "cost": int(cost),
+            "ctr": round(ctr(clk, imp), 2),
+            "cvr": round(cvr(conv, clk), 2),
+            "roas": round(roas(rev, cost), 1),
+        }
+
+    payload: dict = {
+        "period": f"{year}-{month:02d}",
+        "channels": {ch: channel_stats(data) for ch, data in agg.items()},
+        "totals": channel_stats(totals),
+    }
+
+    if prev_agg:
+        payload["previous_period"] = {
+            ch: channel_stats(data) for ch, data in prev_agg.items()
+        }
+
+    return payload
+
+
+def export_json(year: int, month: int, config: dict, service) -> None:
+    """집계 데이터를 JSON으로 stdout에 출력. Hermes 연동용."""
+    spreadsheet_id = config["spreadsheet_id"]
+    columns = config["columns"]
+    channels = config["channels"]
+
+    weekly_sheets = find_weekly_sheets(
+        service, spreadsheet_id, year, month, config["weekly_sheet_name_pattern"]
+    )
+    if not weekly_sheets:
+        print(
+            json.dumps({"error": f"{year}년 {month}월 주간 보고 시트를 찾을 수 없습니다."},
+                       ensure_ascii=False),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    all_records = []
+    for ws in weekly_sheets:
+        rows = read_sheet(service, spreadsheet_id, ws["title"])
+        all_records.extend(parse_weekly_data(rows, columns))
+
+    agg = aggregate_by_channel(all_records, channels)
+    totals = compute_totals(agg)
+
+    # 전월 데이터 시도 (없으면 생략)
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    try:
+        prev_sheets = find_weekly_sheets(
+            service, spreadsheet_id, prev_year, prev_month, config["weekly_sheet_name_pattern"]
+        )
+        prev_records = []
+        for ws in prev_sheets:
+            rows = read_sheet(service, spreadsheet_id, ws["title"])
+            prev_records.extend(parse_weekly_data(rows, columns))
+        prev_agg = aggregate_by_channel(prev_records, channels) if prev_records else None
+    except Exception:
+        prev_agg = None
+
+    payload = build_hermes_json(year, month, agg, totals, prev_agg)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # 메인
 # ---------------------------------------------------------------------------
 
 def main():
+    args = sys.argv[1:]
+    export_mode = "--export-json" in args
+    if export_mode:
+        args = [a for a in args if a != "--export-json"]
+
     today = date.today()
-    if len(sys.argv) == 3:
-        year, month = int(sys.argv[1]), int(sys.argv[2])
+    if len(args) == 2:
+        year, month = int(args[0]), int(args[1])
     else:
         year, month = today.year, today.month
 
-    print(f"대상: {year}년 {month}월 월간 보고 생성 중...")
-
     config = load_config()
     service = get_sheets_service()
+
+    if export_mode:
+        export_json(year, month, config, service)
+        return
+
+    print(f"대상: {year}년 {month}월 월간 보고 생성 중...")
+
     spreadsheet_id = config["spreadsheet_id"]
     columns = config["columns"]
     channels = config["channels"]

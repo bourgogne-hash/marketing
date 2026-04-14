@@ -1,0 +1,72 @@
+# Hermes Agent - 마케팅팀 프로젝트 설정
+# https://hermes-agent.nousresearch.com/docs/
+
+project:
+  name: marketing
+  description: |
+    콘텐츠 마케팅 콘텐츠 작성 및 채널별 마케팅 성과 리뷰 자동화.
+    Google Sheets의 주간 보고 데이터를 집계하여 월간 KPI를 분석하고,
+    채널(SNS, 검색광고, 이메일, 디스플레이)별 콘텐츠를 생성합니다.
+
+# Hermes Agent 스킬 디렉토리
+skills_dir: hermes_skills/
+
+# 프로젝트 컨텍스트 - 대화 시작 시 자동으로 주입됩니다
+context: |
+  당신은 마케팅팀의 AI 어시스턴트입니다.
+
+  ## 프로젝트 구조
+  - generate_monthly_report.py : Google Sheets 주간 보고 → 월간 집계 스크립트
+  - config.json               : 스프레드시트 ID, 채널 목록, 컬럼 매핑
+  - hermes_skills/            : Hermes 스킬 정의
+    - content_creation.md     : 채널별 콘텐츠 작성
+    - performance_review.md   : KPI 기반 성과 분석
+
+  ## 채널 목록
+  SNS, 검색광고, 이메일, 디스플레이, 기타
+
+  ## KPI 지표
+  노출수(impressions), 클릭수(clicks), 전환수(conversions),
+  매출(revenue), 광고비(cost), CTR, CVR, ROAS
+
+  ## 사용 가능한 스킬
+  - `content_creation` : 마케팅 콘텐츠 작성 (블로그/SNS/이메일/광고 카피)
+  - `performance_review`: 월간 KPI 분석 및 다음달 전략 수립
+
+# 메모리 설정 - Hermes의 persistent memory 활용
+memory:
+  # 캠페인 및 콘텐츠 성과 기억 (스킬 실행 후 자동 저장)
+  auto_save:
+    - content_creation   # 생성된 콘텐츠와 성과 연결 기억
+    - performance_review # 월별 성과 트렌드 누적 기억
+  # 사용자 선호 기억
+  user_preferences:
+    - tone_and_manner    # 채널별 선호 톤앤매너
+    - brand_voice        # 브랜드 보이스 가이드라인
+
+# 자동화 스케줄 (hermes gateway 실행 시 동작)
+schedules:
+  # 매월 1일 오전 9시: 전월 성과 리뷰 자동 시작
+  - cron: "0 9 1 * *"
+    action: |
+      지난달 마케팅 성과를 performance_review 스킬로 분석해줘.
+      generate_monthly_report.py --export-json 로 데이터를 먼저 내보내고 분석을 시작해.
+
+  # 매주 월요일 오전 8시: 주간 콘텐츠 계획 리마인더
+  - cron: "0 8 * * 1"
+    action: |
+      이번 주 콘텐츠 캘린더를 확인하고 작성이 필요한 콘텐츠가 있으면 알려줘.
+
+# 모델 설정 (hermes model 명령으로 변경 가능)
+model:
+  default: openrouter:anthropic/claude-sonnet-4-6
+  # 콘텐츠 작성 등 창의적 작업에는 더 강력한 모델 사용
+  skill_overrides:
+    content_creation: openrouter:anthropic/claude-opus-4-6
+    performance_review: openrouter:anthropic/claude-sonnet-4-6
+
+# 터미널 백엔드 (로컬 실행 기본값)
+terminal:
+  backend: local
+  # Docker 사용 시: backend: docker
+  # 서버리스 사용 시: backend: modal
